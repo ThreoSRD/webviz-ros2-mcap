@@ -45,6 +45,10 @@ documentation, local-data exclusions, independent CI and source packaging. See C
 - `packages/webviz-core/src/dataProviders/rootGetDataProvider.js`
 - `packages/webviz-core/src/dataProviders/standardDataProviderDescriptors.js`
 - `packages/webviz-core/src/dataProviders/types.js`
+- `packages/webviz-core/src/panels/Plot/PlotChart.js`
+- `packages/webviz-core/src/panels/RawMessages/Metadata.js`
+- `packages/webviz-core/src/panels/RawMessages/getDiff.js`
+- `packages/webviz-core/src/panels/RawMessages/getDiff.test.js`
 - `packages/webviz-core/src/panels/ThreeDimensionalViz/Layout/WorkerDataRpc.js`
 - `packages/webviz-core/src/panels/ThreeDimensionalViz/Layout/index.js`
 - `packages/webviz-core/src/panels/ThreeDimensionalViz/SceneBuilder/MessageCollector.js`
@@ -96,12 +100,14 @@ documentation, local-data exclusions, independent CI and source packaging. See C
 - `packages/webviz-core/src/dataProviders/WorkerDataProvider.test.js`
 - `packages/webviz-core/src/dataProviders/ros2/decompression.js`
 - `packages/webviz-core/src/dataProviders/ros2/mcapUtils.js`
+- `packages/webviz-core/src/panels/Plot/PlotChart.test.js`
 - `packages/webviz-core/src/panels/ThreeDimensionalViz/Layout/WorkerDataRpc.test.js`
 - `packages/webviz-core/src/panels/ThreeDimensionalViz/TopicSettingsEditor/MarkerArraySettingsEditor.js`
 - `packages/webviz-core/src/panels/ThreeDimensionalViz/TopicSettingsEditor/MarkerArraySettingsEditor.test.js`
 - `packages/webviz-core/src/panels/ThreeDimensionalViz/commands/PointClouds/readers.test.js`
 - `packages/webviz-core/src/panels/ThreeDimensionalViz/markerTopicSettings.js`
 - `packages/webviz-core/src/panels/ThreeDimensionalViz/markerTopicSettings.test.js`
+- `packages/webviz-core/src/util/bigint.js`
 - `scripts/bootstrap-local.cjs`
 - `scripts/fixtures/compression.js`
 - `scripts/fixtures/ros2-scene.js`

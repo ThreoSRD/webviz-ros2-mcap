@@ -5,6 +5,7 @@
 //  This source code is licensed under the Apache License, Version 2.0,
 //  found in the LICENSE file in the root directory of this source tree.
 //  You may not use this file except in compliance with the License.
+// Modified in the Webviz ROS 2 MCAP project; see MODIFICATIONS.md at the repository root.
 
 import flatten from "lodash/flatten";
 import React, { memo, useMemo } from "react";
@@ -24,6 +25,7 @@ import {
   isReferenceLinePlotPathType,
 } from "webviz-core/src/panels/Plot/internalTypes";
 import { derivative, applyToDataOrTooltips, mathFunctions } from "webviz-core/src/panels/Plot/transformPlotRange";
+import { isBigInt } from "webviz-core/src/util/bigint";
 import { deepParse, isBobject } from "webviz-core/src/util/binaryObjects";
 import { format } from "webviz-core/src/util/formatTime";
 import { lightColor, lineColors } from "webviz-core/src/util/plotColors";
@@ -107,12 +109,25 @@ function getPointsAndTooltipsForMessagePathItem(
   for (const [innerIdx, { value: maybeBobject, path: queriedPath, constantName }] of yItem.queriedData.entries()) {
     // It is possible that values are still bobjects at this point. Parse if needed.
     const value = isBobject(maybeBobject) ? deepParse(maybeBobject) : maybeBobject;
-    if (typeof value === "number" || typeof value === "boolean" || typeof value === "string") {
+    const valueIsBigInt = isBigInt(value);
+    if (typeof value === "number" || typeof value === "boolean" || typeof value === "string" || valueIsBigInt) {
+      // ROS 2 int64/uint64 fields are BigInt. Plot them as Numbers (the chart cannot be more
+      // precise than that), but show the exact value in the tooltip.
       const valueNum = Number(value);
       if (!isNaN(valueNum)) {
         const x = getXForPoint(xAxisVal, elapsedTime, innerIdx, xAxisRanges, xItem, xAxisPath);
         const y = valueNum;
-        const tooltip = { x, y, datasetKey, item: yItem, path: queriedPath, value, constantName, startTime };
+        const tooltipValue = valueIsBigInt ? String(value) : value;
+        const tooltip = {
+          x,
+          y,
+          datasetKey,
+          item: yItem,
+          path: queriedPath,
+          value: tooltipValue,
+          constantName,
+          startTime,
+        };
         points.push({ x, y });
         tooltips.push(tooltip);
       }

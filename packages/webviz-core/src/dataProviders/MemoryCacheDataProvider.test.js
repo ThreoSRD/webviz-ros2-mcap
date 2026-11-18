@@ -127,6 +127,37 @@ describe("MemoryCacheDataProvider", () => {
     sendNotification.expectCalledDuringTest();
   });
 
+  it("a failed background prefetch does not break later reads of other ranges", async () => {
+    const { provider, memoryDataProvider } = getProvider(generateMessages());
+    await provider.initialize(mockExtensionPoint().extensionPoint);
+    const read = memoryDataProvider.getMessages.bind(memoryDataProvider);
+    const failure = new Error("bad prefetched chunk");
+    const getMessages = jest
+      .spyOn(memoryDataProvider, "getMessages")
+      .mockImplementationOnce(read)
+      .mockRejectedValueOnce(failure)
+      .mockImplementation(read);
+    const result = await provider.getMessages({ sec: 100, nsec: 0 }, { sec: 100, nsec: 0 }, { bobjects: ["/foo"] });
+    expect(result.bobjects).toHaveLength(1);
+    await delay(0);
+    expect(sendNotification).toHaveBeenCalledTimes(1);
+    expect(sendNotification).toHaveBeenCalledWith(
+      "MemoryCacheDataProvider prefetch failed",
+      failure.message,
+      "app",
+      "error"
+    );
+    // Prefetching stopped instead of retrying the failed range in a loop.
+    const callsAfterFailure = getMessages.mock.calls.length;
+    await delay(10);
+    expect(getMessages.mock.calls.length).toBe(callsAfterFailure);
+
+    const later = await provider.getMessages({ sec: 102, nsec: 0 }, { sec: 102, nsec: 0 }, { bobjects: ["/foo"] });
+    expect(later.bobjects.map(({ receiveTime }) => receiveTime)).toEqual([{ sec: 102, nsec: 0 }]);
+    await provider.close();
+    sendNotification.expectCalledDuringTest();
+  });
+
   it("ignores an abandoned connection error after close", async () => {
     const { provider, memoryDataProvider } = getProvider(generateMessages());
     await provider.initialize(mockExtensionPoint().extensionPoint);

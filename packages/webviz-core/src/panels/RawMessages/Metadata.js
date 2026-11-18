@@ -5,6 +5,7 @@
 //  This source code is licensed under the Apache License, Version 2.0,
 //  found in the LICENSE file in the root directory of this source tree.
 //  You may not use this file except in compliance with the License.
+// Modified in the Webviz ROS 2 MCAP project; see MODIFICATIONS.md at the repository root.
 import ClipboardOutlineIcon from "@mdi/svg/svg/clipboard-outline.svg";
 import { cloneDeepWith } from "lodash";
 import React, { useCallback } from "react";
@@ -13,6 +14,7 @@ import styled from "styled-components";
 import { getMessageDocumentationLink } from "./utils";
 import Icon from "webviz-core/src/components/Icon";
 import type { Message } from "webviz-core/src/players/types";
+import { bigIntJsonReplacer } from "webviz-core/src/util/bigint";
 import { deepParse, isBobject } from "webviz-core/src/util/binaryObjects";
 import clipboard from "webviz-core/src/util/clipboard";
 import { formatTimeRaw } from "webviz-core/src/util/time";
@@ -65,7 +67,7 @@ export default function Metadata({ data, diffData, diff, datatype, message, diff
           return "<buffer>";
         }
       });
-      clipboard.copy(JSON.stringify(dataWithoutLargeArrays, null, 2) || "");
+      clipboard.copy(JSON.stringify(dataWithoutLargeArrays, bigIntJsonReplacer, 2) || "");
     },
     []
   );

@@ -5,9 +5,11 @@
 //  This source code is licensed under the Apache License, Version 2.0,
 //  found in the LICENSE file in the root directory of this source tree.
 //  You may not use this file except in compliance with the License.
+// Modified in the Webviz ROS 2 MCAP project; see MODIFICATIONS.md at the repository root.
 import { every, uniq, keyBy, isEmpty } from "lodash";
 
 import { isTypicalFilterName } from "webviz-core/src/components/MessagePathSyntax/isTypicalFilterName";
+import { bigIntJsonReplacer, isBigInt } from "webviz-core/src/util/bigint";
 import { jsonTreeTheme } from "webviz-core/src/util/globalConstants";
 import { colors } from "webviz-core/src/util/sharedStyleConstants";
 
@@ -27,7 +29,11 @@ const stringify = (value: mixed) => {
     // NaN, -0.0, Infinity etc to not go through JSON.stringify cleanly.
     return value.toString();
   }
-  return JSON.stringify(value);
+  if (isBigInt(value)) {
+    // ROS 2 int64/uint64 values; JSON.stringify would throw.
+    return String(value);
+  }
+  return JSON.stringify(value, bigIntJsonReplacer);
 };
 
 export default function getDiff(

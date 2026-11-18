@@ -193,6 +193,8 @@ export default class MemoryCacheDataProvider implements DataProvider {
   _preloadTopics: string[] = [];
   _closed: boolean = false;
   _readError: ?Error;
+  // Set when a background prefetch fails. Prefetching stops for that topic set only.
+  _prefetchError: ?{| error: Error, topics: string[] |};
 
   // Total length of the data in nanoseconds. Used to compute progress with.
   _totalNs: number;
@@ -394,6 +396,10 @@ export default class MemoryCacheDataProvider implements DataProvider {
     if (connectionForReadRange) {
       return connectionForReadRange;
     }
+    const prefetchError = this._prefetchError;
+    if (prefetchError && isEqual(prefetchError.topics, this._getCurrentTopics())) {
+      return; // Prefetch already failed for these topics; only serve explicit read requests.
+    }
     const cacheBytesUsed = sum(filterMap(this._blocks, (block) => block && block.sizeInBytes));
     if (!this._currentConnection && cacheBytesUsed < this._cacheSizeBytes) {
       // All read requests have been served, but we have free cache space available. Cache something
@@ -428,18 +434,26 @@ export default class MemoryCacheDataProvider implements DataProvider {
       }
       const connectionSuccess = await this._setConnection(newConnection).catch((err) => {
         const error = err instanceof Error ? err : new Error(String(err));
-        this._readError = error;
         delete this._currentConnection;
         const requests = this._readRequests;
+        if (!requests.length) {
+          // A background prefetch (or read-ahead past an already resolved request) failed. Nobody is
+          // waiting for that range, so stop prefetching for this topic set instead of failing the
+          // whole source: reads elsewhere in the recording keep working, and a read that actually
+          // needs the bad range will fail (and be reported by the player) on its own.
+          if (!this._prefetchError) {
+            sendNotification("MemoryCacheDataProvider prefetch failed", error.message, "app", "error");
+          }
+          this._prefetchError = { error, topics: this._getCurrentTopics() };
+          return;
+        }
+        // Foreground errors are reported by the player. Keep them terminal so a corrupt range is not
+        // retried in a loop.
+        this._readError = error;
         this._readRequests = [];
         this._preloadTopics = [];
         for (const request of requests) {
           request.reject(error);
-        }
-        // Foreground errors are reported by the player. A prefetch failure has
-        // no waiting consumer, so expose it here and stop automatic retries.
-        if (!requests.length) {
-          sendNotification("MemoryCacheDataProvider prefetch failed", error.message, "app", "error");
         }
       });
       if (!connectionSuccess) {

@@ -15,6 +15,7 @@ import { adaptDefinitions, estimateMessageBytes, normalizeRos2Definitions, panel
 import type { DataProvider, DataProviderDescriptor, ExtensionPoint, GetDataProvider, GetMessagesTopics } from "./types";
 import { cast } from "webviz-core/src/players/types";
 import { wrapJsObject } from "webviz-core/src/util/binaryObjects";
+import sendNotification from "webviz-core/src/util/sendNotification";
 
 const definitionKey = (value) =>
   // Flow 0.110 and ESLint 5 predate the bigint typeof result.
@@ -27,6 +28,7 @@ export default class Ros2ToBobjectDataProvider {
   _readers: Map<string, any> = new Map();
   _datatypes: any = {};
   _typesByTopic: Map<string, string> = new Map();
+  _topicsWithDecodeErrors: Set<string> = new Set();
 
   constructor(_args: any, children: DataProviderDescriptor[], getDataProvider: GetDataProvider) {
     if (children.length !== 1) {
@@ -117,7 +119,8 @@ export default class Ros2ToBobjectDataProvider {
     if (this._closed) {
       return { bobjects: [], rosBinaryMessages: undefined, parsedMessages: undefined };
     }
-    const bobjects = (result.rosBinaryMessages || []).map(({ topic, receiveTime, message }) => {
+    const bobjects = [];
+    for (const { topic, receiveTime, message } of result.rosBinaryMessages || []) {
       const reader = this._readers.get(topic);
       const datatype = this._typesByTopic.get(topic);
       if (!reader || !datatype) {
@@ -127,20 +130,39 @@ export default class Ros2ToBobjectDataProvider {
       try {
         decoded = reader.readMessage(new Uint8Array(cast<ArrayBuffer>(message)));
       } catch (error) {
-        throw new Error(`Cannot decode ROS 2 topic ${topic}: ${error.message}`);
+        // One undecodable payload (e.g. a schema that does not match what was
+        // published) must not fail the whole block: the memory cache treats read
+        // errors as fatal for the source. Skip it and warn once per topic.
+        this._reportDecodeError(topic, error);
+        continue;
       }
       // A root builtin Time/Duration is decoded as a struct by the library;
       // nested times use its schema-aware timeType conversion.
       if (datatype === "time" || datatype === "duration") {
         decoded = { sec: decoded.sec, nsec: decoded.nanosec };
       }
-      return {
+      bobjects.push({
         topic,
         receiveTime,
         message: wrapJsObject(this._datatypes, datatype, decoded, estimateMessageBytes(decoded)),
-      };
-    });
+      });
+    }
     return { bobjects, rosBinaryMessages: undefined, parsedMessages: undefined };
+  }
+
+  _reportDecodeError(topic: string, error: Error) {
+    if (this._topicsWithDecodeErrors.has(topic)) {
+      return;
+    }
+    this._topicsWithDecodeErrors.add(topic);
+    sendNotification(
+      `Skipping undecodable ROS 2 messages on ${topic}`,
+      `Messages on this topic that do not match its embedded schema are skipped; other topics keep playing. First error: ${
+        error && error.message ? error.message : String(error)
+      }`,
+      "user",
+      "warn"
+    );
   }
 
   async close(): Promise<void> {

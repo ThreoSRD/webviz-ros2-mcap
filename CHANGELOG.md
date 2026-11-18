@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Skip ROS 2 messages that do not decode against their schema (warning once per topic) instead of failing the whole read and stopping playback.
+- A failed background prefetch now stops prefetching for that topic set only; reads elsewhere in the recording keep working.
+- Plot ROS 2 `int64`/`uint64` (BigInt) fields, and stop Raw Messages copy/diff from throwing on them.
+- Open MCAP files that contain unsupported channels (non-CDR, schemaless or `ros2idl`): those topics are skipped with a warning.
+- Accept MCAP chunks that hold no messages without rejecting the file or moving the start time to 0.
+
 ## 0.1.0-preview.1 — 2026-11-16
 
 First independent source preview based on Cruise Webviz.

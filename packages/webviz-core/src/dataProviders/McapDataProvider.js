@@ -13,10 +13,12 @@ import { McapIndexedReader } from "@mcap/core";
 import { checkChunkSize, loadMcapDecompressHandlers, MCAP_COMPRESSIONS } from "./ros2/decompression";
 import { createBlobReadable, nanosecondsToTime, timeToNanoseconds } from "./ros2/mcapUtils";
 import type { DataProviderDescriptor, ExtensionPoint, GetMessagesTopics } from "./types";
+import sendNotification from "webviz-core/src/util/sendNotification";
 
 export default class McapDataProvider {
   _file: ?File;
   _reader: any;
+  _supportedChannelIds: Set<number> = new Set();
   _closed: boolean = false;
 
   constructor({ file }: { file: File }, children: DataProviderDescriptor[]) {
@@ -48,6 +50,16 @@ export default class McapDataProvider {
     let start;
     let end;
     for (const chunk of reader.chunkIndexes) {
+      if (chunk.messageIndexOffsets.size === 0) {
+        // Per the MCAP spec, messageStartTime/EndTime are 0 when a chunk holds no messages (for
+        // example only Schema/Channel records for a topic registered just before recording stopped).
+        // Such a chunk is valid and never read for messages: it must not pull the start time to 0
+        // or require a codec. Non-zero times without indexes mean the indexes are really missing.
+        if (Number(chunk.messageStartTime) === 0 && Number(chunk.messageEndTime) === 0) {
+          continue;
+        }
+        throw new Error("MCAP is missing message indexes. Re-index the recording before opening it.");
+      }
       if (chunk.compression !== "") {
         if (!MCAP_COMPRESSIONS.includes(chunk.compression)) {
           throw new Error(
@@ -56,9 +68,6 @@ export default class McapDataProvider {
         }
         checkChunkSize(chunk.uncompressedSize);
         compressions.add(chunk.compression);
-      }
-      if (chunk.messageIndexOffsets.size === 0) {
-        throw new Error("MCAP is missing message indexes. Re-index the recording before opening it.");
       }
       if (start == null || chunk.messageStartTime < start) {
         start = chunk.messageStartTime;
@@ -71,12 +80,20 @@ export default class McapDataProvider {
     const messageDefinitionsByTopic = {};
     const ros2SchemaNamesByTopic = {};
     const decoder = new TextDecoder("utf-8", { fatal: true });
+    const supportedChannelIds = new Set();
+    const unsupportedReasonsByTopic = new Map();
     for (const channel of reader.channelsById.values()) {
       const schema = reader.schemasById.get(channel.schemaId);
       if (channel.messageEncoding !== "cdr" || !schema || schema.encoding !== "ros2msg") {
-        throw new Error(
-          `Topic ${channel.topic} requires cdr messages and embedded ros2msg schemas (ros2idl is not supported yet).`
-        );
+        // Skip just this channel; one ros2idl/schemaless/non-CDR topic must not block the recording.
+        const reason =
+          channel.messageEncoding !== "cdr"
+            ? `${channel.messageEncoding || "unknown"} messages`
+            : !schema
+            ? "no schema"
+            : `${schema.encoding || "unknown"} schema`;
+        unsupportedReasonsByTopic.set(channel.topic, reason);
+        continue;
       }
       const definition = decoder.decode(schema.data);
       if (topicsByName.has(channel.topic)) {
@@ -91,8 +108,18 @@ export default class McapDataProvider {
         messageDefinitionsByTopic[channel.topic] = definition;
         ros2SchemaNamesByTopic[channel.topic] = schema.name;
       }
+      supportedChannelIds.add(channel.id);
     }
-    if (topicsByName.size === 0 || start == null || end == null) {
+    const skipped = Array.from(unsupportedReasonsByTopic.entries()).map(
+      ([topic, reason]) => `${topic} (${reason}${topicsByName.has(topic) ? " on some channels" : ""})`
+    );
+    const unsupportedSummary = `Only CDR messages with embedded ros2msg schemas are supported (ros2idl is not supported yet). Skipped: ${skipped.join(
+      ", "
+    )}`;
+    if (topicsByName.size === 0) {
+      throw new Error(`MCAP contains no playable ROS 2 topics.${skipped.length ? ` ${unsupportedSummary}` : ""}`);
+    }
+    if (start == null || end == null) {
       throw new Error("MCAP contains no playable topics");
     }
     Object.assign(decompressHandlers, await loadMcapDecompressHandlers(Array.from(compressions)));
@@ -100,6 +127,10 @@ export default class McapDataProvider {
       throw new Error("MCAP source is closed");
     }
     this._reader = reader;
+    this._supportedChannelIds = supportedChannelIds;
+    if (skipped.length) {
+      sendNotification(`Skipped ${skipped.length} unsupported MCAP topic(s)`, unsupportedSummary, "user", "warn");
+    }
     // Bounds come from chunk indexes, not the optional Statistics record.
     return {
       start: nanosecondsToTime(start),
@@ -130,6 +161,9 @@ export default class McapDataProvider {
         const channel = reader.channelsById.get(record.channelId);
         if (!channel) {
           throw new Error(`MCAP references unknown channel ${record.channelId}`);
+        }
+        if (!this._supportedChannelIds.has(record.channelId)) {
+          continue; // An unsupported channel that shares its topic name with a supported one.
         }
         // Own exactly this payload before RPC transfers it; transferring the
         // chunk backing buffer would detach other messages and retain chunks.

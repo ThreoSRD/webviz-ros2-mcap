@@ -20,6 +20,7 @@ import * as decompression from "./ros2/decompression";
 import Ros2ToBobjectDataProvider from "./Ros2ToBobjectDataProvider";
 import signal from "webviz-core/shared/signal";
 import { getField, inaccurateByteSize } from "webviz-core/src/util/binaryObjects";
+import sendNotification from "webviz-core/src/util/sendNotification";
 
 const { compressionOptions } = require("../../../../scripts/fixtures/compression");
 
@@ -60,7 +61,7 @@ function payload(count) {
   return bytes;
 }
 
-async function recording(options = {}, messageDefinition = schema) {
+async function recording(options = {}, messageDefinition = schema, extend) {
   const parts = [];
   let position = toBigInt(0);
   const writer = new McapWriter({
@@ -107,6 +108,9 @@ async function recording(options = {}, messageDefinition = schema) {
       publishTime: toBigInt(0),
       data: payload(99),
     });
+  }
+  if (extend) {
+    await extend(writer);
   }
   await writer.end();
   return new Blob(parts);
@@ -184,6 +188,124 @@ test("missing message indexes produce an actionable initialization error", async
   const provider = new McapDataProvider({ file: await recording({ useMessageIndex: false }) }, []);
   await expect(provider.initialize(extensionPoint)).rejects.toThrow(/message indexes/);
   await provider.close();
+});
+
+test("unsupported channels are skipped and reported instead of rejecting the recording", async () => {
+  const file = await recording({}, schema, async (writer) => {
+    const idlSchema = await writer.registerSchema({
+      name: "custom_msgs/msg/FromIdl",
+      encoding: "ros2idl",
+      data: Buffer.from("module custom_msgs { module msg { struct FromIdl { uint32 value; }; }; };"),
+    });
+    const channels = [
+      { schemaId: 0, topic: "/json", messageEncoding: "json" },
+      { schemaId: idlSchema, topic: "/idl", messageEncoding: "cdr" },
+      // Same topic name as a supported channel: its records must not reach the CDR decoder.
+      { schemaId: 0, topic: "/sample", messageEncoding: "json" },
+    ];
+    for (const channel of channels) {
+      const channelId = await writer.registerChannel({ ...channel, metadata: new Map() });
+      await writer.addMessage({
+        channelId,
+        sequence: 0,
+        logTime: baseTime + toBigInt(1),
+        publishTime: toBigInt(0),
+        data: Buffer.from("{}"),
+      });
+    }
+  });
+  const provider = new McapDataProvider({ file }, []);
+  const info = await provider.initialize(extensionPoint);
+  expect(info.topics.map(({ name }) => name).sort()).toEqual(["/sample", "/unused"]);
+  expect(info.start).toEqual(start);
+  expect(info.end).toEqual(end);
+  expect(sendNotification).toHaveBeenCalledTimes(1);
+  const [message, details, type, severity] = (sendNotification: any).mock.calls[0];
+  expect([message, type, severity]).toEqual(["Skipped 3 unsupported MCAP topic(s)", "user", "warn"]);
+  expect(details).toContain("/json (json messages)");
+  expect(details).toContain("/idl (ros2idl schema)");
+  expect(details).toContain("/sample (json messages on some channels)");
+  const { rosBinaryMessages: messages } = await provider.getMessages(start, end, { rosBinaryMessages: ["/sample"] });
+  expect(messages.map(({ message: data }) => data.byteLength)).toEqual([36, 36, 36]);
+  await provider.close();
+  sendNotification.expectCalledDuringTest();
+});
+
+test("a recording with only unsupported topics explains why nothing is playable", async () => {
+  const parts = [];
+  let position = toBigInt(0);
+  const writer = new McapWriter({
+    writable: {
+      write: async (bytes) => {
+        parts.push(bytes.slice());
+        position += toBigInt(bytes.byteLength);
+      },
+      position: () => position,
+    },
+  });
+  await writer.start({ profile: "ros2", library: "webviz-synthetic-test" });
+  const channelId = await writer.registerChannel({
+    schemaId: 0,
+    topic: "/json",
+    messageEncoding: "json",
+    metadata: new Map(),
+  });
+  await writer.addMessage({ channelId, sequence: 0, logTime: baseTime, publishTime: baseTime, data: Buffer.from("{}") });
+  await writer.end();
+  const provider = new McapDataProvider({ file: new Blob(parts) }, []);
+  await expect(provider.initialize(extensionPoint)).rejects.toThrow(
+    /no playable ROS 2 topics.*Skipped: \/json \(json messages\)/
+  );
+  await provider.close();
+});
+
+test("chunks without messages do not move the start time or reject the recording", async () => {
+  // With chunkSize 1 each message closes its chunk, so this channel lands in a final chunk
+  // that holds no messages (messageStartTime/EndTime are 0 in its index).
+  const file = await recording({}, schema, async (writer) => {
+    await writer.registerChannel({ schemaId: 1, topic: "/late", messageEncoding: "cdr", metadata: new Map() });
+  });
+  const provider = new McapDataProvider({ file }, []);
+  const info = await provider.initialize(extensionPoint);
+  /* eslint-disable no-underscore-dangle */
+  expect(provider._reader.chunkIndexes.some((chunk) => chunk.messageIndexOffsets.size === 0)).toBe(true);
+  /* eslint-enable no-underscore-dangle */
+  expect(info.start).toEqual(start);
+  expect(info.end).toEqual(end);
+  expect(info.topics.map(({ name }) => name).sort()).toEqual(["/late", "/sample", "/unused"]);
+  await provider.close();
+});
+
+test("undecodable messages are skipped and reported once per topic", async () => {
+  const child = new McapDataProvider({ file: await recording() }, []);
+  const provider = new Ros2ToBobjectDataProvider(
+    {},
+    [{ name: "McapDataProvider", args: {}, children: [] }],
+    () => child
+  );
+  await provider.initialize(extensionPoint);
+  // A CDR header followed by too few bytes for the schema's first uint32.
+  const truncated = () => new Uint8Array([0, 1, 0, 0, 7]).buffer;
+  const response = () => ({
+    rosBinaryMessages: [
+      { topic: "/sample", receiveTime: start, message: truncated() },
+      { topic: "/sample", receiveTime: middle, message: payload(1).buffer },
+      { topic: "/sample", receiveTime: end, message: truncated() },
+    ],
+  });
+  jest
+    .spyOn(child, "getMessages")
+    .mockImplementationOnce(async () => response())
+    .mockImplementationOnce(async () => response());
+  for (let i = 0; i < 2; i++) {
+    const { bobjects } = await provider.getMessages(start, end, { bobjects: ["/sample"] });
+    expect(bobjects.map(({ receiveTime }) => receiveTime)).toEqual([middle]);
+    expect(getField(bobjects[0].message, "count")).toBe(1);
+  }
+  expect(sendNotification).toHaveBeenCalledTimes(1);
+  expect((sendNotification: any).mock.calls[0][0]).toBe("Skipping undecodable ROS 2 messages on /sample");
+  await provider.close();
+  sendNotification.expectCalledDuringTest();
 });
 
 test("unknown compression fails during initialization", async () => {

@@ -5,6 +5,7 @@
 //  This source code is licensed under the Apache License, Version 2.0,
 //  found in the LICENSE file in the root directory of this source tree.
 //  You may not use this file except in compliance with the License.
+// Modified in the Webviz ROS 2 MCAP project; see MODIFICATIONS.md at the repository root.
 import getDiff, { diffLabels, diffArrow } from "./getDiff";
 
 const firstObj = { deletedKey: 1, changedKey: 2, unchangedKey: 1, someArray: [1] };
@@ -15,6 +16,22 @@ const obj2 = { some_id: 2, name: "TWO" };
 const obj3 = { some_id: 3, name: "THREE" };
 
 describe("getDiff", () => {
+  it("diffs ROS 2 BigInt (int64/uint64) values without throwing", () => {
+    // Flow 0.110 cannot represent native bigint.
+    const toBigInt: (value: string) => any = BigInt;
+    expect(
+      getDiff(
+        { id: toBigInt("18446744073709551615"), nested: { list: [toBigInt("1")] } },
+        { id: toBigInt("18446744073709551614"), nested: { list: [toBigInt("1")] } }
+      )
+    ).toEqual({
+      id: { [diffLabels.CHANGED.labelText]: `18446744073709551615 ${diffArrow} 18446744073709551614` },
+    });
+    expect(getDiff({ value: { a: toBigInt("2") } }, { value: "x" })).toEqual({
+      value: { [diffLabels.CHANGED.labelText]: `{"a":"2"} ${diffArrow} "x"` },
+    });
+  });
+
   it("diffs single-level objects with added, deleted, changed, and unchanged values", () => {
     expect(getDiff({}, {})).toEqual({});
     expect(getDiff(firstObj, secondObj)).toEqual({
