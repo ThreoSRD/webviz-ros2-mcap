@@ -1,0 +1,15 @@
+Webviz ROS 2 MCAP
+
+This project includes software derived from Cruise Webviz:
+https://github.com/cruise-automation/webviz
+Starting upstream commit: d13afdacaec0b48f983adcaca55b84c36c42a5f2
+
+Original source files include copyright notices of GM Cruise LLC, Cruise LLC,
+and other upstream contributors. Those notices are retained in the source.
+
+ROS 2 MCAP additions and subsequent project modifications:
+Copyright (c) 2026-present, Webviz ROS 2 MCAP contributors.
+See MODIFICATIONS.md and CHANGELOG.md for the scope of these changes.
+
+This is an independent derivative and is not endorsed by Cruise or Foxglove.
+Third-party packages and assets retain their respective license terms.

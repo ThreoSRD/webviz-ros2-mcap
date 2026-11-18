@@ -1,0 +1,11 @@
+{
+  "core": {
+    "actualDir": "__screenshots__"
+  },
+  "plugins": {
+    "reg-simple-keygen-plugin": {
+      "expectedKey": "$REG_SUIT_EXPECTED_KEY",
+      "actualKey": "$CIRCLE_SHA1"
+    }
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "packages/webviz-core/public/fixtures/bag-with-empty-message-definition.bag": "f3c8c6a351e5109da990e75741b560fcf62b92a3ce901984c89a49be6c8d3b3f",
+  "packages/webviz-core/public/fixtures/demo-shuffled.bag": "5274d7c777446df6e33105dd73469eae979647ff526f3afaf0708a6975f731e2",
+  "packages/webviz-core/public/fixtures/example-bz2.bag": "c57db9478083295d8f7a5ef6905da69da0493f1204f1b3f1be8139dc624d57bc",
+  "packages/webviz-core/public/fixtures/example.bag": "6f8b495a7215a03099836955e1ffbf80f2abaff7f8bd65a1bdf9e52c809cef5d",
+  "packages/webviz-core/public/fixtures/only-a-cube-no-tf-ros-melodic.bag": "4e688329231dba8e7dd9be0725afebeea758afd73d0a04202faf40ee0bad4f91",
+  "packages/webviz-core/public/fixtures/only-a-cube.bag": "45355323759cf6c4803c82db2c47ed145e84e0bdc4d33a7dac1b6596a334079e"
+}

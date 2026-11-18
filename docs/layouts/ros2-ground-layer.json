@@ -1,0 +1,41 @@
+{
+  "version": 19,
+  "layout": "3D Panel!ground",
+  "savedProps": {
+    "3D Panel!ground": {
+      "checkedKeys": [
+        "name:Topics",
+        "t:/planning/virtual_map_polygon3d",
+        "t:/planning/virtual_path_polygon3d",
+        "t:/perception/lidar/preproc_points_cloud"
+      ],
+      "expandedKeys": ["name:root", "name:Topics"],
+      "followTf": "base_link",
+      "followOrientation": false,
+      "settingsByKey": {
+        "t:/planning/virtual_map_polygon3d": {
+          "markerArrayMode": "snapshot",
+          "markerZLayer": 0
+        },
+        "t:/planning/virtual_path_polygon3d": {
+          "markerArrayMode": "snapshot",
+          "markerZLayer": 0
+        }
+      },
+      "cameraState": {
+        "targetOffset": [30, 0, 0],
+        "distance": 90,
+        "perspective": true,
+        "phi": 0.6,
+        "thetaOffset": 0,
+        "fovy": 0.7853981633974483,
+        "near": 0.01,
+        "far": 5000
+      }
+    }
+  },
+  "globalVariables": {},
+  "userNodes": {},
+  "linkedGlobalVariables": [],
+  "playbackConfig": { "speed": 1, "messageOrder": "receiveTime" }
+}
