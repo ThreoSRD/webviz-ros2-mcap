@@ -125,6 +125,7 @@
   "scripts": {
     "bootstrap": "node scripts/bootstrap-local.cjs",
     "install-ci": "node scripts/bootstrap-local.cjs --ci",
+    "build:packages": "lerna run build",
     "build": "lerna run build && webpack",
     "watch": "lerna run watch --parallel",
     "clean": "lerna run clean",
@@ -137,6 +138,7 @@
     "build-storybook": "build-storybook -c stories",
     "flow": "flow check --max-workers 2 --temp-dir .cache/flow",
     "flow-typed-rebuild": "rm -rf flow-typed/ && flow-typed install && flow-typed install --rootDir packages/@cruise-automation/hooks && flow-typed install --rootDir packages/@cruise-automation/button && flow-typed install --rootDir packages/@cruise-automation/tooltip && flow-typed install --rootDir packages/regl-worldview",
+    "predocs-dev": "npm run build:packages",
     "docs-dev": "NODE_OPTIONS='--max-old-space-size=4096' DEV_SERVER=true webpack-dev-server",
     "build-static-webviz": "lerna run build && rm -rf __static_webviz__ && cp -r docs/public/app __static_webviz__ && rm __static_webviz__/index.html && cp packages/webviz-core/public/index.html __static_webviz__/index.html && sed -i -- 's/\\/dist\\/webvizCoreBundle.js/webvizCoreBundle.js/' __static_webviz__/index.html && NODE_ENV=production STATIC_WEBVIZ=true webpack",
     "serve-static-webviz": "node_modules/http-server/bin/http-server __static_webviz__",
@@ -146,6 +148,7 @@
     "screenshot-local": "npm run screenshot -- --puppeteerLaunchConfig '{\"headless\": true, \"--args\":[\"--user-agent=PuppeteerTestingChrome/80.\"]}' --parallel 4",
     "screenshot-local-debug": "npm run screenshot-local -- --parallel 1 --debug",
     "ci": "npm run install-ci && npm run verify:mcap -- --no-browser",
+    "prewebviz-dev": "npm run build:packages",
     "webviz-dev": "NODE_OPTIONS='--max-old-space-size=4096' DEV_SERVER=true WEBVIZ_DEV=true webpack-dev-server",
     "verify:mcap": "node scripts/verify-mcap.cjs",
     "verify:mcap:clean": "node scripts/verify-clean-install.cjs",

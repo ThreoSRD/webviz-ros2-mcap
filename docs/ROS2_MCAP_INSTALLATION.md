@@ -8,7 +8,10 @@
 
 ```sh
 npm run bootstrap
+npm run webviz-dev
 ```
+
+开发服务器启动前会自动执行 `npm run build:packages`，构建链接后的本地包；首次启动还需要等待 webpack 编译完成。若此前直接启动时遇到 `Can't resolve '@cruise-automation/tooltip'`，重新执行 `npm run webviz-dev` 即可。
 
 严格使用锁文件安装：
 

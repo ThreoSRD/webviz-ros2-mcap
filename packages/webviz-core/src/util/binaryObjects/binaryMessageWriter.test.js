@@ -50,6 +50,14 @@ describe("BobWriter", () => {
     expect(bigString).toBe("hello");
     expect(buffer.byteLength).toBe(0);
   });
+
+  it("stores strings that are also Object prototype property names", () => {
+    const writer = new BobWriter();
+    expect(writer.string("constructor")).toBe(0);
+    expect(writer.string("__proto__")).toBe(11);
+    expect(writer.string("constructor")).toBe(0);
+    expect(writer.write().bigString).toBe("constructor__proto__");
+  });
 });
 
 describe("printStoreSingularVariable", () => {

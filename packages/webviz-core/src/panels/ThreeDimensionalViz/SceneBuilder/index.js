@@ -184,6 +184,21 @@ export function filterOutSupersededMessages(messages: any, datatype: string) {
   return filteredMessages;
 }
 
+// Inspect bobject points directly so rejecting a hidden line does not first
+// materialize a complete array of point objects.
+function markerPointsMatchLayer(points: any, layer: number): boolean {
+  if (!points || !points.length()) {
+    return false;
+  }
+  for (const point of points) {
+    const z = point.z();
+    if (!Number.isFinite(z) || Math.abs(z - layer) > 1e-4) {
+      return false;
+    }
+  }
+  return true;
+}
+
 // https://stackoverflow.com/a/59084440/4543751
 export function parseStringTemplate(str: string, obj: any): string {
   const parts = str.split(/\$\{(?!\d)[\wæøåÆØÅ]*\}/);
@@ -232,6 +247,7 @@ export default class SceneBuilder implements MarkerProvider {
   _hooks: ThreeDimensionalVizHooks;
 
   allNamespaces: Namespace[] = [];
+  _namespaceBatch: ?{| topic: string, known: Set<string>, added: Namespace[] |} = null;
   // TODO(Audrey): remove enabledNamespaces once we release topic groups
   enabledNamespaces: Namespace[] = [];
   selectedNamespacesByTopic: ?{ [topicName: string]: Set<string> };
@@ -455,6 +471,14 @@ export default class SceneBuilder implements MarkerProvider {
 
   // keep a unique set of all seen namespaces
   _consumeNamespace(topic: string, name: string) {
+    const batch = this._namespaceBatch;
+    if (batch && batch.topic === topic) {
+      if (!batch.known.has(name)) {
+        batch.known.add(name);
+        batch.added.push({ topic, name });
+      }
+      return;
+    }
     if (some(this.allNamespaces, (ns) => ns.topic === topic && ns.name === name)) {
       return;
     }
@@ -524,28 +548,55 @@ export default class SceneBuilder implements MarkerProvider {
   };
 
   _consumeMarkerArray = (topic: string, message: any, receiveTime?: Time): void => {
-    for (const marker of message.markers()) {
-      this._consumeMarker(topic, marker, receiveTime);
+    // A snapshot can be rebuilt from lastSeenMessages when the layer changes.
+    // Incremental arrays must retain hidden markers across messages instead.
+    const skipHiddenSnapshot =
+      this.topicsByName[topic]?.datatype === VISUALIZATION_MSGS$MARKER_ARRAY &&
+      this._settingsByKey[`t:${topic}`]?.markerArrayMode === "snapshot";
+    // Marker arrays can contain thousands of distinct namespaces. Collect and
+    // publish them once rather than repeatedly scanning and copying the list.
+    const previousBatch = this._namespaceBatch;
+    const batch = {
+      topic,
+      known: new Set(this.allNamespaces.filter((ns) => ns.topic === topic).map((ns) => ns.name)),
+      added: [],
+    };
+    this._namespaceBatch = batch;
+    try {
+      for (const marker of message.markers()) {
+        this._consumeMarker(topic, marker, receiveTime, skipHiddenSnapshot);
+      }
+    } finally {
+      this._namespaceBatch = previousBatch;
+      if (batch.added.length) {
+        this.allNamespaces = this.allNamespaces.concat(batch.added);
+        if (this._onForceUpdate) {
+          this._onForceUpdate();
+        }
+      }
     }
   };
 
   _consumeMarker(
     topic: string,
     message: BinaryMarker | BinaryIconMarker | BinaryInstancedMarker,
-    receiveTime?: Time
+    receiveTime?: Time,
+    skipHiddenSnapshot?: boolean
   ): void {
     const namespace = message.ns();
+    const layer = this._settingsByKey[`t:${topic}`]?.markerZLayer;
+    const isLine = message.type() === MARKER_MSG_TYPES.LINE_STRIP || message.type() === MARKER_MSG_TYPES.LINE_LIST;
+    const filterLayer = typeof layer === "number" && Number.isFinite(layer) && isLine;
+    let points;
+    let matchesLayer = true;
+    if (filterLayer && (namespace || (skipHiddenSnapshot && message.action() === 0))) {
+      points = message.points();
+      matchesLayer = markerPointsMatchLayer(points, layer);
+    }
     if (namespace) {
       // Consume namespaces even if the message is later discarded
       // Otherwise, the namespace won't be shown as available.
-      const layer = this._settingsByKey[`t:${topic}`]?.markerZLayer;
-      const isLine = message.type() === MARKER_MSG_TYPES.LINE_STRIP || message.type() === MARKER_MSG_TYPES.LINE_LIST;
-      if (
-        typeof layer !== "number" ||
-        !Number.isFinite(layer) ||
-        !isLine ||
-        pointsMatchLayer(deepParse(message.points()) || [], layer)
-      ) {
+      if (matchesLayer) {
         this._consumeNamespace(topic, namespace);
       }
       if (!this.namespaceIsEnabled(topic, namespace)) {
@@ -581,8 +632,22 @@ export default class SceneBuilder implements MarkerProvider {
       return;
     }
 
-    const points = message.points();
     const { position } = pose;
+    points = points || message.points();
+    if (skipHiddenSnapshot && filterLayer && !matchesLayer) {
+      // Keep minZ and replacement-by-ID behavior, but do not materialize
+      // geometry that cannot be drawn at the selected layer. A later layer
+      // change reprocesses the original complete snapshot.
+      if (points && points.length()) {
+        for (const point of points) {
+          this.updateMinZ(point.z() + position.z);
+        }
+      } else {
+        this.updateMinZ(position.z);
+      }
+      this.collectors[topic].deleteMarker(name);
+      return;
+    }
 
     let minZ = Number.MAX_SAFE_INTEGER;
 
@@ -921,7 +986,7 @@ export default class SceneBuilder implements MarkerProvider {
     const decayTime = this._settingsByKey[`t:${topic}`]?.decayTime;
     const snapshot =
       MARKER_ARRAY_DATATYPES.includes(datatype) && this._settingsByKey[`t:${topic}`]?.markerArrayMode === "snapshot";
-    let filteredMessages = decayTime === undefined ? filterOutSupersededMessages(messages, datatype) : messages;
+    let filteredMessages;
     if (snapshot) {
       // A snapshot is a complete replacement, including an empty MarkerArray.
       // Ignore cached messages from the future when seeking backwards.
@@ -931,6 +996,8 @@ export default class SceneBuilder implements MarkerProvider {
       this.collectors[topic].deleteAll();
       // Snapshot namespaces follow the current array/layer, not playback history.
       this.allNamespaces = this.allNamespaces.filter((namespace) => namespace.topic !== topic);
+    } else {
+      filteredMessages = decayTime === undefined ? filterOutSupersededMessages(messages, datatype) : messages;
     }
     for (const message of filteredMessages) {
       this._consumeMessage(topic, datatype, message);

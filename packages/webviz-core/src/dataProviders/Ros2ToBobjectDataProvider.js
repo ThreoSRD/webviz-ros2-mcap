@@ -14,7 +14,7 @@ import { MessageReader } from "@foxglove/rosmsg2-serialization";
 import { adaptDefinitions, estimateMessageBytes, normalizeRos2Definitions, panelTypeName } from "./ros2/mcapUtils";
 import type { DataProvider, DataProviderDescriptor, ExtensionPoint, GetDataProvider, GetMessagesTopics } from "./types";
 import { cast } from "webviz-core/src/players/types";
-import { wrapJsObject } from "webviz-core/src/util/binaryObjects";
+import { wrapRos2DecodedObject } from "webviz-core/src/util/binaryObjects";
 import sendNotification from "webviz-core/src/util/sendNotification";
 
 const definitionKey = (value) =>
@@ -144,7 +144,7 @@ export default class Ros2ToBobjectDataProvider {
       bobjects.push({
         topic,
         receiveTime,
-        message: wrapJsObject(this._datatypes, datatype, decoded, estimateMessageBytes(decoded)),
+        message: wrapRos2DecodedObject(this._datatypes, datatype, decoded, estimateMessageBytes(decoded)),
       });
     }
     return { bobjects, rosBinaryMessages: undefined, parsedMessages: undefined };

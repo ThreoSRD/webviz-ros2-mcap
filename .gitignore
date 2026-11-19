@@ -1,2 +1,8 @@
 node_modules
 .cache/
+/packages/@cruise-automation/button/lib/
+/packages/@cruise-automation/hooks/dist/
+/packages/@cruise-automation/tooltip/lib/
+/packages/regl-worldview/dist/
+/docs/public/dist/
+/__static_webviz__/

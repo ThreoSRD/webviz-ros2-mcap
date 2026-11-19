@@ -234,6 +234,9 @@ module.exports = {
     __filename: true,
   },
   performance: { hints: false },
+  // Dependencies do not need file watchers during app development. Watching
+  // the large monorepo dependency trees can exhaust Linux's inotify limit.
+  watchOptions: { ignored: /node_modules/ },
   devServer: {
     contentBase: WEBVIZ_DEV ? path.resolve(`${__dirname}/dist`) : path.resolve(`${__dirname}/docs/public`),
     hot: true,

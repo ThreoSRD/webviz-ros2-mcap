@@ -28,7 +28,7 @@ npm run webviz-dev
 
 Open the address printed by webpack-dev-server, normally **http://localhost:8080/**. Drag a `.mcap` or ROS 1 `.bag` file into the page. Add panels and select topics as needed.
 
-Bootstrap installs the monorepo dependencies and links local packages. Its npm, node-gyp and Puppeteer caches stay under `.cache/`. Chromium downloads are skipped. Rerun bootstrap after interrupted downloads; see [installation details](docs/ROS2_MCAP_INSTALLATION.md).
+Bootstrap installs the monorepo dependencies and links local packages. Each time you start the development server, it first builds the local packages; allow time for that and the initial webpack compilation before opening the page. Its npm, node-gyp and Puppeteer caches stay under `.cache/`. Chromium downloads are skipped. Rerun bootstrap after interrupted downloads; see [installation details](docs/ROS2_MCAP_INSTALLATION.md).
 
 To build and serve production assets locally:
 

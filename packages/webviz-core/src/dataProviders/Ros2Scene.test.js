@@ -16,6 +16,7 @@ import McapDataProvider from "./McapDataProvider";
 import Ros2ToBobjectDataProvider from "./Ros2ToBobjectDataProvider";
 import { getGlobalHooks } from "webviz-core/src/loadWebviz";
 import useBlocksByTopicWithFallback from "webviz-core/src/PanelAPI/useBlocksByTopicWithFallback";
+import CompactRos2MarkerMessages from "webviz-core/src/panels/ThreeDimensionalViz/Layout/compactRos2MarkerMessages";
 import SceneBuilder from "webviz-core/src/panels/ThreeDimensionalViz/SceneBuilder";
 import Transforms from "webviz-core/src/panels/ThreeDimensionalViz/Transforms";
 import useTransformsNear from "webviz-core/src/panels/ThreeDimensionalViz/Transforms/useTransformsNear";
@@ -69,16 +70,18 @@ function scene(time = 0) {
   builder.setTransforms(transformsAt(time), "map");
   return builder;
 }
-function consume(builder, time, topics = ["/markers", "/marker_array"]) {
+function consume(builder, time, topics = ["/markers", "/marker_array"], compactor) {
   builder.setCurrentTime(at(time));
   builder.setTransforms(transformsAt(time), "map");
   const frame = groupBy(
-    messages.filter(
-      (message) =>
-        topics.includes(message.topic) &&
-        message.receiveTime.sec === at(time).sec &&
-        message.receiveTime.nsec === at(time).nsec
-    ),
+    messages
+      .filter(
+        (message) =>
+          topics.includes(message.topic) &&
+          message.receiveTime.sec === at(time).sec &&
+          message.receiveTime.nsec === at(time).nsec
+      )
+      .map((message) => (compactor ? compactor.compact(message) : message)),
     "topic"
   );
   builder.setFrame(frame);
@@ -242,6 +245,68 @@ test("Z layer selection filters whole lines and switches layers while paused wit
   expect(select(0)).toEqual([1, 3, 4, 6]);
 });
 
+test("snapshot layers can be changed while paused without materializing hidden lines", () => {
+  const builder = snapshotScene();
+  const template = deepParse(snapshotMessage([0], 0).message).markers[0];
+  const line = (id, z) => ({
+    ...template,
+    id,
+    type: 4,
+    points: [{ x: 0, y: 0, z }, { x: 1, y: 0, z }],
+  });
+  const message = {
+    topic: "/marker_array",
+    receiveTime: at(0),
+    message: wrapJsObject(info.messageDefinitions.datatypes, "visualization_msgs/MarkerArray", {
+      markers: [line(1, 0), line(2, -1), line(3, 0.5)],
+    }),
+  };
+  const select = (layer, mode = "snapshot") => {
+    builder.setSettingsByKey({ "t:/marker_array": { markerArrayMode: mode, markerZLayer: layer } });
+    builder.render();
+    return rendered(builder).map((marker) => marker.id);
+  };
+  builder.setSettingsByKey({ "t:/marker_array": { markerArrayMode: "snapshot", markerZLayer: 0 } });
+  expect(renderSnapshots(builder, 0, [message])).toEqual([1]);
+  expect(builder.collectors["/marker_array"].getMessages()).toHaveLength(1);
+  expect(builder.getScene().minZ).toBe(-1);
+  expect(select(-1)).toEqual([2]);
+  expect(select(null)).toEqual([1, 2, 3]);
+  expect(select(0)).toEqual([1]);
+  // Incremental mode needs to retain all layers for updates in later arrays.
+  expect(select(0, "incremental")).toEqual([1]);
+  expect(builder.collectors["/marker_array"].getMessages()).toHaveLength(3);
+  expect(select(0.5, "incremental")).toEqual([3]);
+});
+
+test("hidden snapshot lines still replace IDs and honor delete actions", () => {
+  const builder = snapshotScene();
+  builder.setSettingsByKey({ "t:/marker_array": { markerArrayMode: "snapshot", markerZLayer: 0 } });
+  const template = deepParse(snapshotMessage([0], 0).message).markers[0];
+  const line = (id, z, action = 0) => ({
+    ...template,
+    id,
+    action,
+    type: 4,
+    points: [{ x: 0, y: 0, z }, { x: 1, y: 0, z }],
+  });
+  const batch = (markers) => ({
+    topic: "/marker_array",
+    receiveTime: at(0),
+    message: wrapJsObject(info.messageDefinitions.datatypes, "visualization_msgs/MarkerArray", { markers }),
+  });
+  expect(renderSnapshots(builder, 0, [batch([line(1, 0), line(1, 1)])])).toEqual([]);
+  builder.setSettingsByKey({ "t:/marker_array": { markerArrayMode: "snapshot", markerZLayer: 1 } });
+  builder.render();
+  expect(rendered(builder).map((marker) => marker.id)).toEqual([1]);
+  builder.setSettingsByKey({ "t:/marker_array": { markerArrayMode: "snapshot", markerZLayer: 0 } });
+  expect(renderSnapshots(builder, 0, [batch([line(1, 0), line(1, 1, 2)])])).toEqual([]);
+  expect(renderSnapshots(builder, 0, [batch([line(1, 0), line(2, 1, 3)])])).toEqual([]);
+  const missingFrame = { ...line(1, 1), header: { ...template.header, frame_id: "" } };
+  expect(renderSnapshots(builder, 0, [batch([line(1, 0), missingFrame])])).toEqual([1]);
+  expect(builder.errorsByTopic["/marker_array"].join(" ")).toMatch(/missing frame id/);
+});
+
 test("identical text at one position collapses without losing updates, deletes or expiry", () => {
   const builder = snapshotScene(false);
   const label = (id, extra = {}) =>
@@ -348,6 +413,25 @@ test("ADD replaces an id, DELETE removes it, and DELETEALL is applied before fol
   expectFrameWarnings(["/markers", "/marker_array"]);
 });
 
+test("compacted ROS 2 MarkerArrays retain 3D lifetime and delete behavior", () => {
+  const compactor = new CompactRos2MarkerMessages();
+  const original = messages.find((message) => message.topic === "/marker_array");
+  expect(compactor.compact(original)).not.toBe(original);
+  const builder = scene();
+  consume(builder, 0, undefined, compactor);
+  builder.setCurrentTime({ sec: START_SEC, nsec: 500000001 });
+  expect(rendered(builder).some((marker) => marker.id === 11)).toBe(false);
+  consume(builder, 2, undefined, compactor);
+  expect(rendered(builder).some((marker) => marker.id === 10)).toBe(false);
+  consume(builder, 3, undefined, compactor);
+  expect(rendered(builder).map((marker) => marker.id)).toEqual([14]);
+  consume(builder, 4, undefined, compactor);
+  expect(rendered(builder).map((marker) => marker.id)).toEqual([2]);
+  consume(builder, 5, undefined, compactor);
+  expect(rendered(builder).map((marker) => marker.id)).toEqual([15]);
+  expectFrameWarnings(["/markers", "/marker_array"]);
+});
+
 test("ROS 2 Duration expires markers on the existing receive-time clock, including the nanosecond boundary", () => {
   const builder = scene();
   consume(builder, 0);
@@ -394,6 +478,8 @@ test("planning arrays appearing late stay on the current layer and bound namespa
   builder.setTopics([{ name: topic, datatype: "visualization_msgs/MarkerArray" }]);
   // Existing saved settings contain no markerZLayer.
   builder.setSettingsByKey({ [`t:${topic}`]: { markerArrayMode: "snapshot" } });
+  const onForceUpdate = jest.fn();
+  builder.setOnForceUpdate(onForceUpdate);
   const batch = (seconds, size, ground) => {
     const template = deepParse(snapshotMessage([0], seconds).message).markers[0];
     return {
@@ -419,7 +505,9 @@ test("planning arrays appearing late stay on the current layer and bound namespa
   expect(rendered(builder)).toHaveLength(0);
   update(1, { [topic]: [batch(1, 3000, 27)] });
   expect(rendered(builder)).toHaveLength(27);
+  expect(builder.collectors[topic].getMessages()).toHaveLength(27);
   expect(builder.allNamespaces).toHaveLength(27);
+  expect(onForceUpdate).toHaveBeenCalledTimes(1);
   update(2, { [topic]: [batch(2, 2000, 15)] });
   expect(rendered(builder)).toHaveLength(15);
   expect(builder.allNamespaces).toHaveLength(15);

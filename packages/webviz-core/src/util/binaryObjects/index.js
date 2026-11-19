@@ -47,6 +47,9 @@ export type { ArrayView };
 // Stored for top-level bobjects only.
 const approximateBinarySizes = new WeakMap<any, number>();
 const reverseWrappedBobjects = new WeakSet<any>();
+// The CDR reader produces a complete plain object graph. Remember it only for
+// wrappers created directly from that reader, not for arbitrary mixed bobjects.
+const decodedRos2Values = new WeakMap<any, any>();
 
 export const getBinaryOffset = (obj: any): number => {
   const offset = obj[context.offsetSymbol];
@@ -135,6 +138,19 @@ export const wrapJsObject = <T>(
   }
   return cast<T>(ret);
 };
+
+export const wrapRos2DecodedObject = <T>(
+  typesByName: RosDatatypes,
+  typeName: string,
+  object: any,
+  retainedBytes: number
+): T => {
+  const wrapped = wrapJsObject(typesByName, typeName, object, retainedBytes);
+  decodedRos2Values.set(wrapped, object);
+  return cast<T>(wrapped);
+};
+
+export const getRos2DecodedValue = (object: any): any => decodedRos2Values.get(object);
 
 // NOTE: The only guarantee is that the sum of the sizes of the bobjects in a given block are
 // about right. Sizes are not available for submessages, only top-level bobjects.

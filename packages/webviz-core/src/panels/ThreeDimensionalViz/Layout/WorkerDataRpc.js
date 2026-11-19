@@ -9,6 +9,7 @@
 
 import { groupBy, flatten } from "lodash";
 
+import CompactRos2MarkerMessages from "./compactRos2MarkerMessages";
 import type { RenderResult } from "./types";
 import signal, { type Signal } from "webviz-core/shared/signal";
 import type { Frame } from "webviz-core/src/players/types";
@@ -24,6 +25,7 @@ type Args = $ReadOnly<{
 export class LayoutWorkerDataSender {
   _rpc: Rpc;
   _bobjectSender: BobjectRpcSender;
+  _markerCompactor: CompactRos2MarkerMessages = new CompactRos2MarkerMessages();
   _previousArgs: ?Args = null;
   _closed: boolean = false;
 
@@ -64,7 +66,9 @@ export class LayoutWorkerDataSender {
     const framesDiffer = this._previousArgs?.frame !== args.frame;
     let bobjects = [];
     if (framesDiffer) {
-      bobjects = flatten(Object.keys(args.frame).map((topic) => args.frame[topic]));
+      bobjects = flatten(Object.keys(args.frame).map((topic) => args.frame[topic])).map((message) =>
+        this._markerCompactor.compact(message)
+      );
     }
     const nonFrameData = {};
     Object.keys(args)
@@ -100,6 +104,7 @@ export class LayoutWorkerDataSender {
   close() {
     this._closed = true;
     this._previousArgs = null;
+    this._markerCompactor.clear();
     const queued = this._queuedSendSignal;
     this._queuedSendSignal = null;
     if (queued) {

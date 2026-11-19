@@ -35,7 +35,8 @@ export class BobWriter {
   reset() {
     this._strings = [];
     this._bytesUsed = 0;
-    this._stringStartCache = {};
+    // Recorded strings can be names such as "constructor" or "__proto__".
+    this._stringStartCache = Object.create(null);
     this._totalStringLength = 0;
   }
 
